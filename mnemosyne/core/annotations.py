@@ -270,11 +270,27 @@ class AnnotationStore:
         confidence: float = 1.0,
         *,
         _write_policy=None,
+        _working_parent_session_id: str | None = None,
     ) -> int:
         """Batch-insert helper for multiple values under one (memory_id, kind).
 
         Returns the count of rows inserted. Skips empty / blank values silently.
+
+        ``_working_parent_session_id`` is an internal admission hook for delayed
+        enrichment: when supplied, each insert is atomically conditioned on the
+        expected working-memory parent still existing in that session.
         """
+        if _working_parent_session_id is not None:
+            return self._add_many_if_working_parent(
+                memory_id,
+                _working_parent_session_id,
+                kind,
+                values,
+                source,
+                confidence,
+                _write_kind="public",
+                _write_policy=_write_policy,
+            )
         return self._add_many(
             memory_id,
             kind,

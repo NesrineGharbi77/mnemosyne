@@ -2842,15 +2842,14 @@ def _extract_and_store_facts(
         # Filter to match the legacy filtering applied by TripleStore.add_facts.
         kept = filter_facts(facts)
         if kept:
-            beam.annotations._add_many_if_working_parent(
+            beam.annotations.add_many(
                 memory_id=memory_id,
-                session_id=beam.session_id,
                 kind="fact",
                 values=kept,
                 source=source,
                 confidence=0.7,
-                _write_kind="public",
                 _write_policy=write_policy,
+                _working_parent_session_id=beam.session_id,
             )
 
         # ALSO store every policy-admitted fact in the facts table (new cloud
@@ -6139,7 +6138,8 @@ class BeamMemory:
         return result_ids
 
     def _ingest_graph_and_veracity(self, memory_id: str, content: str,
-                                    source: str, veracity: str = "unknown"):
+                                    source: str, veracity: str = "unknown", *,
+                                    require_working_parent: bool = True):
         """Phase 3-4: Extract gists + facts, store in graph, consolidate veracity.
         Non-blocking -- failures in graph/veracity don't affect memory storage."""
 
@@ -6159,9 +6159,14 @@ class BeamMemory:
                     content, memory_id
                 )
 
-                gist_stored = self.episodic_graph._store_gist_if_working_parent(
-                    gist, memory_id, parent_session_id
-                )
+                if require_working_parent:
+                    gist_stored = self.episodic_graph._store_gist_if_working_parent(
+                        gist, memory_id, parent_session_id
+                    )
+                else:
+                    self.episodic_graph.store_gist(gist, memory_id)
+                    gist_stored = True
+
                 if not gist_stored:
                     # The parent was already gone at the gist write boundary.
                     # Stop this graph tail here instead of creating derivatives
@@ -7446,7 +7451,13 @@ class BeamMemory:
             # weight in its confidence update -- undermining the very signal
             # we just preserved in the episodic INSERT.
             if _owned_txn:
-                self._ingest_graph_and_veracity(memory_id, summary, source, veracity=row_veracity)
+                self._ingest_graph_and_veracity(
+                    memory_id,
+                    summary,
+                    source,
+                    veracity=row_veracity,
+                    require_working_parent=False,
+                )
 
             if emit_event:
                 self._emit_event(
