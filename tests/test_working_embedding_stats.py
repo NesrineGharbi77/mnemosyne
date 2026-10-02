@@ -270,15 +270,20 @@ def test_stats_read_only_no_models_network_or_repair(store, tmp_path, monkeypatc
     assert all(s.lstrip().upper().startswith(("SELECT", "--")) for s in statements), statements
 
 
-def test_standalone_advertised_dispatch_recall_and_bank_isolation(tmp_path, monkeypatch):
+@pytest.mark.parametrize("embedding_dim_drift", [False, True])
+def test_standalone_advertised_dispatch_recall_and_bank_isolation(tmp_path, monkeypatch, embedding_dim_drift):
     np = pytest.importorskip("numpy")
     from mnemosyne_hermes import MnemosyneMemoryProvider
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     monkeypatch.setenv("MNEMOSYNE_DATA_DIR", str(tmp_path / "data"))
     MnemosyneConfig.reset_instance()
+    if embedding_dim_drift:
+        monkeypatch.setattr(em, "EMBEDDING_DIM", bm.EMBEDDING_DIM * 2)
     def vector(text):
-        out = np.zeros(em.EMBEDDING_DIM, dtype=np.float32)
+        # Match the store's dimension; earlier embedding-module reloads can
+        # change em.EMBEDDING_DIM without changing BEAM's imported dimension.
+        out = np.zeros(bm.EMBEDDING_DIM, dtype=np.float32)
         out[1 if "cobalt" in text.lower() else 0] = 1
         return out
     # ONLY the model boundary is deterministic. Provider/store/ANN/JSON
